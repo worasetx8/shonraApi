@@ -1,0 +1,115 @@
+# Dependencies
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build outputs
+.next/
+out/
+dist/
+build/
+**/dist/
+**/build/
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# Environment files (contain secrets)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.production
+**/.env
+**/.env.local
+**/.env.production
+*.env
+stack.env
+**/stack.env
+
+# Uploaded files (ไม่ควร commit)
+**/uploads/
+server/uploads/
+backend/uploads/
+client/public/uploads/
+
+# Generated reports
+*.txt
+!README.txt
+**/*_report.txt
+**/*_comparison.txt
+**/schema_*.txt
+
+# Logs
+*.log
+logs/
+**/logs/
+*.log.*
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# SSL Certificates (if stored locally)
+ssl/
+*.pem
+*.key
+*.crt
+*.cert
+*.csr
+
+# Database dumps
+*.sql.gz
+*.dump
+mysql-data/
+data/
+
+# Test coverage
+coverage/
+.nyc_output/
+*.lcov
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+.temp/
+
+# Package manager
+.pnpm-store/
+.yarn/
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# Vercel
+.vercel
+
+# Keep README files
+!README.md
+!**/README.md
+

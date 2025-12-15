@@ -1,0 +1,34 @@
+version: '3.8'
+services:
+  # Backend API Server - Express.js (API endpoints)
+  backend-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: shonra-backend-api
+    image: shonra-backend-api:1.0.2
+    env_file:
+      - stack.env
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+    ports:
+      - '3002:3002'
+    volumes:
+      - server_uploads:/app/uploads
+    networks:
+      - shonra-network
+volumes:
+  server_uploads:
+    external: true
+
+networks:
+  shonra-network:
+    external: true
+

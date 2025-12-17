@@ -124,7 +124,7 @@ router.get("/whitelisted", requireAuth, requireAdmin, (req, res) => {
  *                 description: IP address to block
  *               durationMs:
  *                 type: integer
- *                 description: Block duration in milliseconds (default: 1 hour)
+ *                 description: "Block duration in milliseconds (default: 1 hour)"
  *               reason:
  *                 type: string
  *                 description: Reason for blocking

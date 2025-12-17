@@ -581,7 +581,7 @@ router.post("/check", requireAuth, async (req, res) => {
  *                 example: [1, 2, 3]
  *               source:
  *                 type: string
- *                 description: Product source (default: 'backend')
+ *                 description: "Product source (default: 'backend')"
  *                 example: "backend"
  *     responses:
  *       200:

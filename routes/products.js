@@ -834,7 +834,7 @@ router.post("/save", requireAuth, async (req, res) => {
  *               $ref: '#/components/schemas/Error'
  */
 router.post("/save-from-frontend", 
-  rateLimiter({ windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: RATE_LIMIT_MAX_REQUESTS }),
+  rateLimiter({ windowMs: 60 * 1000, maxRequests: 60 }), // 60 requests per minute (more lenient for user actions)
   async (req, res) => {
   try {
     // Sanitize input

@@ -72,8 +72,7 @@ export async function checkAccountLocked(userId) {
     const isLocked = user.is_locked === 1 || user.is_locked === true;
     const remainingMinutes = user.remaining_minutes !== null ? Math.ceil(user.remaining_minutes) : null;
 
-    Logger.warn(`[AccountLockout] Checking lockout for user ID ${userId}: locked_until=${user.locked_until} (type: ${typeof user.locked_until}), failed_attempts=${user.failed_login_attempts}, is_locked=${isLocked} (raw: ${user.is_locked}), remaining_minutes=${remainingMinutes} (raw: ${user.remaining_minutes})`);
-
+    // Only log debug info if account is locked (warn) or for debugging (debug)
     if (isLocked && remainingMinutes !== null && remainingMinutes > 0) {
       Logger.warn(`[AccountLockout] ✅ Account LOCKED for user ID ${userId}. Remaining: ${remainingMinutes} minutes`);
       
@@ -129,8 +128,6 @@ export async function incrementFailedAttempts(userId) {
     
     // Use MySQL's comparison result (is_locked) instead of JavaScript comparison
     const isLocked = user.is_locked === 1 || user.is_locked === true;
-    
-    Logger.warn(`[AccountLockout] incrementFailedAttempts: Checking lockout for user ID ${userId}: locked_until=${user.locked_until}, is_locked=${isLocked} (raw: ${user.is_locked})`);
     
     if (isLocked && user.locked_until) {
       // Account is still locked, don't increment attempts

@@ -82,8 +82,6 @@ router.post("/login", strictRateLimit(), async (req, res) => {
         },
         `Account is temporarily locked due to too many failed login attempts. Please try again in ${lockStatus.remainingMinutes} minute(s).`
       ));
-    } else {
-      Logger.warn(`[Auth] ⚠️ Account NOT locked for user: ${username} (userId: ${user.id})`);
     }
 
     // Check if user is active
@@ -142,8 +140,6 @@ router.post("/login", strictRateLimit(), async (req, res) => {
         `Account is temporarily locked due to too many failed login attempts. Please try again in ${lockStatusBeforePassword.remainingMinutes} minute(s).`
       ));
     }
-
-    Logger.warn(`[Auth] ⚠️ Account NOT locked before password check for user: ${username} (userId: ${user.id})`);
 
     const isValidPassword = verifyPassword(password, user.password_hash);
 

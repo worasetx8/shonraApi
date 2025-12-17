@@ -7,7 +7,7 @@ import Logger from "../utils/logger.js";
 import { handleErrorWithFormat } from "../utils/errorHandler.js";
 import { rateLimiter } from "../middleware/rateLimiter.js";
 import { validateRequest } from "../middleware/requestValidator.js";
-import { clearCategoryCache } from "./products.js";
+import { clearCategoryCache } from "../utils/categoryService.js";
 import { responseCache } from "../middleware/responseCache.js";
 
 const router = express.Router();

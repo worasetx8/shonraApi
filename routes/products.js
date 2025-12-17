@@ -10,6 +10,8 @@ import { handleErrorWithFormat } from "../utils/errorHandler.js";
 import { responseCache } from "../middleware/responseCache.js";
 import { rateLimiter } from "../middleware/rateLimiter.js";
 import { buildProductQuery } from "../utils/productQueryBuilder.js";
+import { prepareProductData, saveProduct } from "../utils/productService.js";
+// Category analysis moved to utils/categoryService.js (used via productService)
 
 const router = express.Router();
 
@@ -18,24 +20,15 @@ const API_URL = "https://open-api.affiliate.shopee.co.th/graphql";
 const APP_ID = process.env.SHOPEE_APP_ID;
 const APP_SECRET = process.env.SHOPEE_APP_SECRET;
 
-// Cache constants
-const CATEGORY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+// Cache constants (moved to categoryService.js)
 const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 const RATE_LIMIT_MAX_REQUESTS = 10; // 10 requests per minute
 const FLASH_SALE_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
 const PUBLIC_PRODUCTS_CACHE_TTL = 3 * 60 * 1000; // 3 minutes
 const MAX_FLASH_SALE_LIMIT = 20; // Maximum products to show in flash sale
 
-// Category cache to avoid repeated database queries
-let categoryCache = null;
-let categoryCacheTimestamp = null;
-
-// Function to clear category cache (call when categories are updated)
-export function clearCategoryCache() {
-  categoryCache = null;
-  categoryCacheTimestamp = null;
-  Logger.info("[Cache] Category cache cleared");
-}
+// Category cache moved to utils/categoryService.js
+// Import clearCategoryCache from categoryService if needed
 
 // Debug environment variables on startup (only in development)
 Logger.debug("Products Route Environment:", {
@@ -473,7 +466,12 @@ router.post("/check", requireAuth, async (req, res) => {
  * @swagger
  * /api/products/save:
  *   post:
- *     summary: Save product to database (admin)
+ *     summary: Save product to database (admin) - Refactored with auto category assignment
+ *     description: |
+ *       Saves or updates a product in the database. 
+ *       - Automatically assigns category based on product name if category_id is not provided
+ *       - Uses productService for data preparation and saving
+ *       - Supports tag management if tags array is provided
  *     tags: [Products]
  *     security:
  *       - bearerAuth: []
@@ -489,19 +487,144 @@ router.post("/check", requireAuth, async (req, res) => {
  *             properties:
  *               itemId:
  *                 type: string
+ *                 description: Unique product item ID from Shopee
+ *                 example: "1234567890"
  *               productName:
  *                 type: string
+ *                 description: Product name (used for auto category assignment)
+ *                 example: "เครื่องสำอางครีมบำรุงผิว"
  *               price:
  *                 type: number
+ *                 description: Product price
+ *                 example: 299
+ *               priceMin:
+ *                 type: number
+ *                 description: Minimum price (if price range)
+ *                 example: 250
+ *               priceMax:
+ *                 type: number
+ *                 description: Maximum price (if price range)
+ *                 example: 350
+ *               commissionRate:
+ *                 type: number
+ *                 description: Commission rate (decimal, e.g., 0.1 for 10%)
+ *                 example: 0.1
+ *               sellerCommissionRate:
+ *                 type: number
+ *                 description: Seller commission rate
+ *                 example: 0.05
+ *               shopeeCommissionRate:
+ *                 type: number
+ *                 description: Shopee commission rate
+ *                 example: 0.05
+ *               commission:
+ *                 type: number
+ *                 description: Commission amount
+ *                 example: 29.9
  *               category_id:
  *                 type: integer
+ *                 description: Category ID (optional - will auto-assign if not provided)
+ *                 example: 1
+ *               shopName:
+ *                 type: string
+ *                 description: Shop name
+ *                 example: "ร้านตัวอย่าง"
+ *               shopId:
+ *                 type: string
+ *                 description: Shop ID
+ *                 example: "12345"
+ *               imageUrl:
+ *                 type: string
+ *                 description: Product image URL
+ *                 example: "https://example.com/image.jpg"
+ *               productLink:
+ *                 type: string
+ *                 description: Product link
+ *                 example: "https://shopee.co.th/product/1234567890"
+ *               offerLink:
+ *                 type: string
+ *                 description: Affiliate offer link
+ *                 example: "https://shopee.co.th/product/1234567890?affiliate"
+ *               ratingStar:
+ *                 type: number
+ *                 description: Product rating (0-5)
+ *                 example: 4.5
+ *               sold:
+ *                 type: integer
+ *                 description: Sales count
+ *                 example: 1000
+ *               discountRate:
+ *                 type: number
+ *                 description: Discount rate percentage
+ *                 example: 20
+ *               is_flash_sale:
+ *                 type: boolean
+ *                 description: Is flash sale product
+ *                 example: false
+ *               periodStartTime:
+ *                 type: integer
+ *                 description: Flash sale start time (Unix timestamp)
+ *                 example: 1702647123
+ *               periodEndTime:
+ *                 type: integer
+ *                 description: Flash sale end time (Unix timestamp)
+ *                 example: 1702733523
+ *               campaignActive:
+ *                 type: boolean
+ *                 description: Campaign active status
+ *                 example: true
+ *               tags:
+ *                 type: array
+ *                 description: Array of tag IDs (optional - will update product tags if provided)
+ *                 items:
+ *                   type: integer
+ *                 example: [1, 2, 3]
+ *               source:
+ *                 type: string
+ *                 description: Product source (default: 'backend')
+ *                 example: "backend"
  *     responses:
  *       200:
  *         description: Product saved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                       description: Product ID (insertId for new products)
+ *                     action:
+ *                       type: string
+ *                       enum: [inserted, updated]
+ *                       description: Action performed
+ *                 message:
+ *                   type: string
+ *                   example: "Product saved successfully"
  *       400:
  *         description: Missing required fields
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  *       401:
  *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 // Save product to database
 router.post("/save", requireAuth, async (req, res) => {
@@ -517,135 +640,30 @@ router.post("/save", requireAuth, async (req, res) => {
       return res.status(400).json(formatResponse(false, null, `Missing required fields: ${missing.join(", ")}`));
     }
 
-    // Use INSERT ... ON DUPLICATE KEY UPDATE to handle both insert and update
-    const source = productData.source || 'backend'; // frontend or backend
+    // Prepare product data using service helper
+    const preparedData = await prepareProductData(productData, {
+      fromFrontend: false,
+      autoAssignCategory: true
+    });
 
-    // Category ID:
-    // - ถ้า backend เลือก category เอง จะมาจาก productData.category_id
-    // - ถ้าไม่ได้เลือก ให้ใช้ logic analyzeCategory แบบเดียวกับฝั่ง frontend
-    let categoryId = productData.category_id ? parseInt(productData.category_id) : null;
+    Logger.debug(`[Save-from-backend] Product: ${preparedData.productName}`);
+    Logger.debug(`[Save-from-backend] Final categoryId to save: ${preparedData.categoryId}`);
 
-    Logger.debug(`[Save-from-backend] Product: ${productData.productName}`);
-    Logger.debug(`[Save-from-backend] Initial categoryId from request: ${categoryId}`);
+    // Save product using service helper
+    const result = await saveProduct(preparedData, {
+      updateTags: Array.isArray(productData.tags) // Update tags if provided
+    });
 
-    if (!categoryId && productData.productName) {
-      Logger.debug(`[Save-from-backend] Analyzing category for product: ${productData.productName}`);
-      categoryId = await analyzeCategory(productData.productName);
-      if (categoryId) {
-        Logger.success(`[Save-from-backend] Auto-assigned category ID: ${categoryId}`);
-      } else {
-        Logger.info(`[Save-from-backend] No matching category found, product will be uncategorized`);
-      }
-    }
-
-    Logger.debug(`[Save-from-backend] Final categoryId to save: ${categoryId}`);
-
-    const upsertQuery = `
-      INSERT INTO shopee_products (
-        item_id, product_name, shop_name, shop_id,
-        price, price_min, price_max,
-        commission_rate, seller_commission_rate, shopee_commission_rate, commission_amount,
-        image_url, product_link, offer_link,
-        rating_star, sales_count, discount_rate,
-        period_start_time, period_end_time, campaign_active,
-        category_id, is_flash_sale, source,
-        status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE
-        product_name = VALUES(product_name),
-        shop_name = VALUES(shop_name),
-        shop_id = VALUES(shop_id),
-        price = VALUES(price),
-        price_min = VALUES(price_min),
-        price_max = VALUES(price_max),
-        commission_rate = VALUES(commission_rate),
-        seller_commission_rate = VALUES(seller_commission_rate),
-        shopee_commission_rate = VALUES(shopee_commission_rate),
-        commission_amount = VALUES(commission_amount),
-        image_url = VALUES(image_url),
-        product_link = VALUES(product_link),
-        offer_link = VALUES(offer_link),
-        rating_star = VALUES(rating_star),
-        sales_count = VALUES(sales_count),
-        discount_rate = VALUES(discount_rate),
-        period_start_time = VALUES(period_start_time),
-        period_end_time = VALUES(period_end_time),
-        campaign_active = VALUES(campaign_active),
-        category_id = VALUES(category_id),
-        is_flash_sale = VALUES(is_flash_sale),
-        source = VALUES(source),
-        status = 'active',
-        updated_at = CURRENT_TIMESTAMP
-    `;
-
-    const values = [
-      productData.itemId,
-      productData.productName,
-      productData.shopName || "",
-      productData.shopId || "",
-      parseFloat(productData.price) || 0,
-      productData.priceMin ? parseFloat(productData.priceMin) : null,
-      productData.priceMax ? parseFloat(productData.priceMax) : null,
-      parseFloat(productData.commissionRate) || 0,
-      parseFloat(productData.sellerCommissionRate) || 0,
-      parseFloat(productData.shopeeCommissionRate) || 0,
-      parseFloat(productData.commission) || 0,
-      productData.imageUrl || "",
-      productData.productLink || "",
-      productData.offerLink || "",
-      parseFloat(productData.ratingStar) || 0,
-      parseInt(productData.sold) || 0,
-      parseFloat(productData.discountRate) || 0,
-      parseInt(productData.periodStartTime) || 0,
-      parseInt(productData.periodEndTime) || 0,
-      productData.campaignActive ? 1 : 0,
-      categoryId,
-      productData.is_flash_sale ? 1 : 0,
-      source,
-      "active"
-    ];
-
-    const result = await executeQuery(upsertQuery, values);
-
-    if (result.success) {
-      // Update tags if provided
-      if (Array.isArray(productData.tags)) {
-         const itemId = productData.itemId;
-         const tagIds = productData.tags;
-         
-         // Delete existing tags
-         await executeQuery("DELETE FROM product_tags WHERE product_item_id = ?", [itemId]);
-         
-         // Insert new tags
-         if (tagIds.length > 0) {
-            const placeholders = tagIds.map(() => '(?, ?)').join(',');
-            const flatParams = [];
-            tagIds.forEach(tagId => {
-                flatParams.push(itemId);
-                flatParams.push(tagId);
-            });
-            
-            const insertTagsQuery = `INSERT INTO product_tags (product_item_id, tag_id) VALUES ${placeholders}`;
-            await executeQuery(insertTagsQuery, flatParams);
-         }
-      }
-
-      const isUpdate = result.data.affectedRows === 2; // 1 for delete, 1 for insert = update
-      const isInsert = result.data.affectedRows === 1; // 1 for insert = new record
-
-      res.json(
-        formatResponse(
-          true,
-          {
-            id: result.data.insertId,
-            action: isUpdate ? "updated" : "inserted"
-          },
-          `Product ${isUpdate ? "updated" : "saved"} successfully`
-        )
-      );
-    } else {
-      throw new Error("Failed to save/update product to database");
-    }
+    res.json(
+      formatResponse(
+        true,
+        {
+          id: result.insertId,
+          action: result.action
+        },
+        `Product ${result.action === "updated" ? "updated" : "saved"} successfully`
+      )
+    );
   } catch (error) {
     return handleErrorWithFormat(error, res, "Failed to save product", 500, formatResponse);
   }
@@ -658,168 +676,19 @@ router.post("/save", requireAuth, async (req, res) => {
  * @param {Array} categories - Array of category objects with id and name
  * @returns {number|null} - Category ID or null if no match found
  */
-async function analyzeCategory(productName) {
-  try {
-    Logger.debug(`[analyzeCategory] Starting analysis for: ${productName}`);
-    
-    // Check cache first
-    const now = Date.now();
-    if (categoryCache && categoryCacheTimestamp && (now - categoryCacheTimestamp < CATEGORY_CACHE_TTL)) {
-      Logger.debug(`[analyzeCategory] Using cached data (age: ${Math.round((now - categoryCacheTimestamp) / 1000)}s)`);
-    } else {
-      Logger.debug(`[analyzeCategory] Loading fresh data from database`);
-      
-      // Get all active categories from database
-      const categoriesResult = await executeQuery(
-        "SELECT id, name FROM categories WHERE is_active = 1 ORDER BY name ASC"
-      );
-
-      if (!categoriesResult.success || !categoriesResult.data || categoriesResult.data.length === 0) {
-        Logger.warn(`[analyzeCategory] No categories available in database`);
-        return null; // No categories available
-      }
-
-      const categories = categoriesResult.data;
-      
-      // Get all keywords from database for all categories
-      const keywordsResult = await executeQuery(
-        `SELECT ck.category_id, ck.keyword, ck.is_high_priority, c.name as category_name
-         FROM category_keywords ck
-         JOIN categories c ON ck.category_id = c.id
-         WHERE c.is_active = 1
-         ORDER BY ck.category_id, ck.is_high_priority DESC, ck.keyword ASC`
-      );
-
-      // Build cache structure
-      const cache = {
-        categories: [],
-        categoryKeywords: {},
-        categoryWords: {},
-        categoryHighPriorityKeywords: {}
-      };
-
-      // Initialize keywords arrays for each category
-      categories.forEach(cat => {
-        cache.categories.push(cat);
-        const catName = cat.name.toLowerCase();
-        const keywords = [catName];
-        const catWords = catName.split(/[\s\-_]+/).filter(w => w.length > 1);
-        
-        cache.categoryWords[cat.id] = catWords;
-        keywords.push(...catWords);
-        cache.categoryKeywords[cat.id] = keywords;
-        cache.categoryHighPriorityKeywords[cat.id] = [];
-      });
-
-      // Populate keywords from database
-      if (keywordsResult.success && keywordsResult.data && keywordsResult.data.length > 0) {
-        keywordsResult.data.forEach(kw => {
-          if (cache.categoryKeywords[kw.category_id]) {
-            cache.categoryKeywords[kw.category_id].push(kw.keyword);
-            if (kw.is_high_priority) {
-              cache.categoryHighPriorityKeywords[kw.category_id].push(kw.keyword);
-            }
-          }
-        });
-        Logger.debug(`[analyzeCategory] Loaded ${keywordsResult.data.length} keywords from database`);
-      } else {
-        Logger.warn(`[analyzeCategory] No keywords found in database. Using category names only.`);
-      }
-
-      // Update cache
-      categoryCache = cache;
-      categoryCacheTimestamp = now;
-      Logger.debug(`[analyzeCategory] Cache updated with ${categories.length} categories`);
-    }
-
-    // Use cached data for analysis
-    const productNameLower = productName.toLowerCase();
-    let bestMatch = null;
-    let bestScore = 0;
-
-    categoryCache.categories.forEach(cat => {
-      const keywords = categoryCache.categoryKeywords[cat.id] || [];
-      let score = 0;
-      const matchedKeywords = [];
-      const highPriorityKeywords = categoryCache.categoryHighPriorityKeywords[cat.id] || [];
-
-      keywords.forEach(keyword => {
-        const keywordLower = keyword.toLowerCase();
-        const wordBoundaryRegex = new RegExp(`\\b${keywordLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-        const isExactWord = wordBoundaryRegex.test(productNameLower);
-        const isSubstring = productNameLower.includes(keywordLower);
-        
-        if (isExactWord || isSubstring) {
-          const isHighPriority = highPriorityKeywords.some(highPriority => 
-            keywordLower === highPriority.toLowerCase() || 
-            keywordLower.includes(highPriority.toLowerCase()) || 
-            highPriority.toLowerCase().includes(keywordLower)
-          );
-          
-          if (keyword === cat.name.toLowerCase()) {
-            score += 20;
-            matchedKeywords.push(keyword);
-          } 
-          else if (categoryCache.categoryWords[cat.id] && categoryCache.categoryWords[cat.id].includes(keyword)) {
-            score += 15;
-            matchedKeywords.push(keyword);
-          }
-          else if (isHighPriority && isExactWord) {
-            score += 10;
-            matchedKeywords.push(keyword);
-          }
-          else if (isHighPriority && isSubstring) {
-            score += 5;
-            matchedKeywords.push(keyword);
-          }
-          else if (isExactWord) {
-            score += 5;
-            matchedKeywords.push(keyword);
-          }
-          else {
-            score += 1;
-            matchedKeywords.push(keyword);
-          }
-        }
-      });
-
-      // Bonus: Multiple keyword matches in same category
-      if (matchedKeywords.length > 1) {
-        score += matchedKeywords.length * 2;
-      }
-
-      // Bonus: Longer keyword matches (more specific)
-      matchedKeywords.forEach(keyword => {
-        if (keyword.length > 5) {
-          score += 2;
-        }
-      });
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestMatch = cat.id;
-      }
-    });
-
-    // Lower threshold: return category if score is at least 1 (any match)
-    if (bestScore > 0) {
-      Logger.success(`[analyzeCategory] Best match: Category ID ${bestMatch} with score ${bestScore}`);
-      return bestMatch;
-    } else {
-      Logger.info(`[analyzeCategory] No category match found (bestScore: ${bestScore})`);
-      return null;
-    }
-  } catch (error) {
-    Logger.error("[analyzeCategory] Category analysis error:", error);
-    return null;
-  }
-}
+// analyzeCategory function moved to utils/categoryService.js
 
 /**
  * @swagger
  * /api/products/save-from-frontend:
  *   post:
- *     summary: Save product from frontend (public, rate limited)
+ *     summary: Save product from frontend (public, rate limited) - Refactored with auto category assignment
+ *     description: |
+ *       Public endpoint for saving products from frontend.
+ *       - Rate limited: 10 requests per minute per IP
+ *       - Automatically assigns category based on product name
+ *       - Converts commission rate from percentage to decimal if > 1 (e.g., 10 -> 0.1)
+ *       - Uses productService for data preparation and saving
  *     tags: [Products]
  *     requestBody:
  *       required: true
@@ -833,17 +702,136 @@ async function analyzeCategory(productName) {
  *             properties:
  *               itemId:
  *                 type: string
+ *                 description: Unique product item ID from Shopee
+ *                 example: "1234567890"
  *               productName:
  *                 type: string
+ *                 description: Product name (used for auto category assignment)
+ *                 example: "เครื่องสำอางครีมบำรุงผิว"
  *               price:
  *                 type: number
+ *                 description: Product price
+ *                 example: 299
+ *               priceMin:
+ *                 type: number
+ *                 description: Minimum price (if price range)
+ *                 example: 250
+ *               priceMax:
+ *                 type: number
+ *                 description: Maximum price (if price range)
+ *                 example: 350
+ *               commissionRate:
+ *                 type: number
+ *                 description: Commission rate (can be percentage e.g., 10 or decimal 0.1 - will be converted if > 1)
+ *                 example: 10
+ *               imageUrl:
+ *                 type: string
+ *                 description: Product image URL
+ *                 example: "https://example.com/image.jpg"
+ *               productLink:
+ *                 type: string
+ *                 description: Product link
+ *                 example: "https://shopee.co.th/product/1234567890"
+ *               offerLink:
+ *                 type: string
+ *                 description: Affiliate offer link
+ *                 example: "https://shopee.co.th/product/1234567890?affiliate"
+ *               ratingStar:
+ *                 type: number
+ *                 description: Product rating (0-5)
+ *                 example: 4.5
+ *               salesCount:
+ *                 type: integer
+ *                 description: Sales count
+ *                 example: 1000
+ *               discountRate:
+ *                 type: number
+ *                 description: Discount rate percentage
+ *                 example: 20
+ *               shopName:
+ *                 type: string
+ *                 description: Shop name
+ *                 example: "ร้านตัวอย่าง"
+ *               shopId:
+ *                 type: string
+ *                 description: Shop ID
+ *                 example: "12345"
+ *               category_id:
+ *                 type: integer
+ *                 description: Category ID (optional - will auto-assign if not provided)
+ *                 example: 1
+ *               is_flash_sale:
+ *                 type: boolean
+ *                 description: Is flash sale product
+ *                 example: false
+ *               periodStartTime:
+ *                 type: integer
+ *                 description: Flash sale start time (Unix timestamp)
+ *                 example: 1702647123
+ *               periodEndTime:
+ *                 type: integer
+ *                 description: Flash sale end time (Unix timestamp)
+ *                 example: 1702733523
+ *               campaignActive:
+ *                 type: boolean
+ *                 description: Campaign active status
+ *                 example: true
  *     responses:
  *       200:
  *         description: Product saved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                       description: Product ID
+ *                     action:
+ *                       type: string
+ *                       example: "saved"
+ *                     categoryId:
+ *                       type: integer
+ *                       nullable: true
+ *                       description: Auto-assigned category ID (if auto-assigned)
+ *                 message:
+ *                   type: string
+ *                   example: "Product saved successfully from frontend. Auto-assigned to category ID: 1"
  *       400:
  *         description: Missing required fields
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  *       429:
- *         description: Rate limit exceeded
+ *         description: Rate limit exceeded (10 requests per minute)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "Too many requests, please try again later"
+ *                 retryAfter:
+ *                   type: integer
+ *                   description: Seconds until retry is allowed
+ *                   example: 45
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.post("/save-from-frontend", 
   rateLimiter({ windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: RATE_LIMIT_MAX_REQUESTS }),
@@ -861,125 +849,35 @@ router.post("/save-from-frontend",
       return res.status(400).json(formatResponse(false, null, `Missing required fields: ${missing.join(", ")}`));
     }
 
-    // Analyze and assign category automatically if not provided
-    let categoryId = productData.category_id ? parseInt(productData.category_id) : null;
-    
-    Logger.debug(`[Save-from-frontend] Product: ${productData.productName}`);
-    Logger.debug(`[Save-from-frontend] Initial categoryId from request: ${categoryId}`);
-    
-    if (!categoryId && productData.productName) {
-      Logger.debug(`Analyzing category for product: ${productData.productName}`);
-      categoryId = await analyzeCategory(productData.productName);
-      if (categoryId) {
-        Logger.success(`Auto-assigned category ID: ${categoryId}`);
-      } else {
-        Logger.info(`No matching category found, product will be uncategorized`);
-      }
-    }
-    
-    Logger.debug(`[Save-from-frontend] Final categoryId to save: ${categoryId}`);
+    // Prepare product data using service helper (with frontend-specific options)
+    const preparedData = await prepareProductData(productData, {
+      fromFrontend: true, // Enable commission rate conversion
+      autoAssignCategory: true
+    });
 
-    // Use INSERT ... ON DUPLICATE KEY UPDATE to handle both insert and update
-    const source = 'frontend';
-    
-    // commission_rate is stored as decimal (0.1 = 10%), but frontend may send as percentage (10)
-    // Convert percentage to decimal if value > 1 (assuming it's percentage)
-    // Database column is decimal(5,4) which supports -9.9999 to 9.9999
-    const commissionRateValue = parseFloat(productData.commissionRate) || 0;
-    const commissionRateDecimal = commissionRateValue > 1 ? commissionRateValue / 100 : commissionRateValue;
-    
-    const upsertQuery = `
-      INSERT INTO shopee_products (
-        item_id, product_name, shop_name, shop_id,
-        price, price_min, price_max,
-        commission_rate, seller_commission_rate, shopee_commission_rate, commission_amount,
-        image_url, product_link, offer_link,
-        rating_star, sales_count, discount_rate,
-        period_start_time, period_end_time, campaign_active,
-        category_id, is_flash_sale, source,
-        status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE
-        product_name = VALUES(product_name),
-        shop_name = VALUES(shop_name),
-        shop_id = VALUES(shop_id),
-        price = VALUES(price),
-        price_min = VALUES(price_min),
-        price_max = VALUES(price_max),
-        commission_rate = VALUES(commission_rate),
-        seller_commission_rate = VALUES(seller_commission_rate),
-        shopee_commission_rate = VALUES(shopee_commission_rate),
-        commission_amount = VALUES(commission_amount),
-        image_url = VALUES(image_url),
-        product_link = VALUES(product_link),
-        offer_link = VALUES(offer_link),
-        rating_star = VALUES(rating_star),
-        sales_count = VALUES(sales_count),
-        discount_rate = VALUES(discount_rate),
-        period_start_time = VALUES(period_start_time),
-        period_end_time = VALUES(period_end_time),
-        campaign_active = VALUES(campaign_active),
-        category_id = VALUES(category_id),
-        is_flash_sale = VALUES(is_flash_sale),
-        source = VALUES(source),
-        status = 'active',
-        updated_at = CURRENT_TIMESTAMP
-    `;
+    Logger.debug(`[Save-from-frontend] Product: ${preparedData.productName}`);
+    Logger.debug(`[Save-from-frontend] Final categoryId to save: ${preparedData.categoryId}`);
 
-    const values = [
-      productData.itemId,
-      productData.productName,
-      productData.shopName || "",
-      productData.shopId || "",
-      parseFloat(productData.price) || 0,
-      productData.priceMin ? parseFloat(productData.priceMin) : null,
-      productData.priceMax ? parseFloat(productData.priceMax) : null,
-      commissionRateDecimal, // Use converted decimal value (0.1 = 10%)
-      parseFloat(productData.sellerCommissionRate) || 0,
-      parseFloat(productData.shopeeCommissionRate) || 0,
-      parseFloat(productData.commission) || 0,
-      productData.imageUrl || "",
-      productData.productLink || "",
-      productData.offerLink || "",
-      parseFloat(productData.ratingStar) || 0,
-      parseInt(productData.sold) || 0,
-      parseFloat(productData.discountRate) || 0,
-      parseInt(productData.periodStartTime) || 0,
-      parseInt(productData.periodEndTime) || 0,
-      productData.campaignActive ? 1 : 0,
-      categoryId, // Use analyzed category ID
-      productData.is_flash_sale ? 1 : 0,
-      source,
-      "active"
-    ];
+    // Save product using service helper
+    const result = await saveProduct(preparedData, {
+      updateTags: false // Frontend endpoint doesn't handle tags
+    });
 
-    Logger.debug(`[Save-from-frontend] Saving product with categoryId: ${categoryId} (itemId: ${productData.itemId})`);
+    Logger.success(`[Save-from-frontend] Product saved successfully. InsertId: ${result.insertId}, categoryId: ${preparedData.categoryId}`);
 
-    const result = await executeQuery(upsertQuery, values);
-    
-    if (result.success) {
-      Logger.success(`[Save-from-frontend] Product saved successfully. InsertId: ${result.data.insertId}, categoryId: ${categoryId}`);
-    } else {
-      Logger.error(`[Save-from-frontend] Failed to save product: ${result.error}`);
-    }
-
-    if (result.success) {
-      res.json(
-        formatResponse(
-          true,
-          {
-            id: result.data.insertId,
-            action: "saved",
-            categoryId: categoryId // Return assigned category ID
-          },
-          categoryId 
-            ? `Product saved successfully from frontend. Auto-assigned to category ID: ${categoryId}`
-            : "Product saved successfully from frontend"
-        )
-      );
-    } else {
-      throw new Error("Failed to save product to database");
-    }
+    res.json(
+      formatResponse(
+        true,
+        {
+          id: result.insertId,
+          action: "saved",
+          categoryId: preparedData.categoryId // Return assigned category ID
+        },
+        preparedData.categoryId 
+          ? `Product saved successfully from frontend. Auto-assigned to category ID: ${preparedData.categoryId}`
+          : "Product saved successfully from frontend"
+      )
+    );
   } catch (error) {
     return handleErrorWithFormat(error, res, "Failed to save product", 500, formatResponse);
   }
@@ -1682,7 +1580,13 @@ router.patch("/status", requireAuth, async (req, res) => {
  * @swagger
  * /api/products/flash-sale:
  *   get:
- *     summary: Get Flash Sale products (public)
+ *     summary: Get Flash Sale products (public) - Optimized query with parameterized timestamps
+ *     description: |
+ *       Returns active flash sale products.
+ *       - Optimized query with parameterized timestamps (no UNIX_TIMESTAMP() in WHERE clause)
+ *       - Uses composite indexes for better performance
+ *       - Cached for 2 minutes
+ *       - Maximum 20 products per page
  *     tags: [Products]
  *     parameters:
  *       - in: query
@@ -1690,12 +1594,16 @@ router.patch("/status", requireAuth, async (req, res) => {
  *         schema:
  *           type: integer
  *           default: 1
+ *           minimum: 1
+ *         description: Page number
  *       - in: query
  *         name: limit
  *         schema:
  *           type: integer
  *           default: 20
  *           maximum: 20
+ *           minimum: 1
+ *         description: Number of products per page (max 20)
  *     responses:
  *       200:
  *         description: Flash Sale products retrieved successfully
@@ -1729,6 +1637,8 @@ router.get("/flash-sale",
     //    - ถ้าไม่มี campaign_active หรือ campaign_active = 0 → ก็ใช้ได้ (เพื่อให้มีสินค้าแสดง)
     //    - ถ้ามี period_start_time / period_end_time ให้เช็คให้อยู่ในช่วงเวลา NOW
     //    - เรียงลำดับ: ราคาถูกที่สุดก่อน แล้วตามด้วยยอดขายสูงสุด
+    // Optimized: ใช้ parameter แทน UNIX_TIMESTAMP() เพื่อให้ใช้ index ได้ดีขึ้น
+    const currentTimestamp = Math.floor(Date.now() / 1000); // Current Unix timestamp
     const selectQuery = `
       SELECT DISTINCT 
         p.id, p.item_id, p.category_id, c.name as category_name, 
@@ -1749,34 +1659,40 @@ router.get("/flash-sale",
           -- กรณี 2: ตั้งเวลาแล้ว และอยู่ในช่วงเวลาปัจจุบัน → แสดงได้
           ( p.period_start_time IS NOT NULL 
             AND p.period_start_time > 0 
-            AND p.period_start_time <= UNIX_TIMESTAMP()
+            AND p.period_start_time <= ?
             AND p.period_end_time IS NOT NULL
             AND p.period_end_time > 0
-            AND p.period_end_time >= UNIX_TIMESTAMP()
+            AND p.period_end_time >= ?
           )
         )
       ORDER BY 
         p.price ASC,
         p.sales_count DESC,
         p.updated_at DESC
+      LIMIT ${parseInt(effectiveLimit)} OFFSET ${parseInt(offset)}
     `;
 
-    const productsResult = await executeQuery(selectQuery);
+    const queryParams = [currentTimestamp, currentTimestamp];
+    Logger.debug(`[Flash Sale] Query params:`, { currentTimestamp, effectiveLimit, offset, queryParams });
+    
+    const productsResult = await executeQuery(selectQuery, queryParams);
 
     if (!productsResult.success) {
+      Logger.error(`[Flash Sale] Query failed:`, productsResult.error);
+      Logger.error(`[Flash Sale] Query:`, selectQuery);
+      Logger.error(`[Flash Sale] Params:`, queryParams);
       throw new Error(`Query failed: ${productsResult.error}`);
     }
 
-    let allProducts = productsResult.data || [];
+    let flashSaleProducts = productsResult.data || [];
     
-    // Random shuffle products
-    for (let i = allProducts.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [allProducts[i], allProducts[j]] = [allProducts[j], allProducts[i]];
+    // Random shuffle products (only if we got products)
+    if (flashSaleProducts.length > 0) {
+      for (let i = flashSaleProducts.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [flashSaleProducts[i], flashSaleProducts[j]] = [flashSaleProducts[j], flashSaleProducts[i]];
+      }
     }
-    
-    // Take only the requested limit
-    const flashSaleProducts = allProducts.slice(offset, offset + effectiveLimit);
 
     // 2) อัปเดตสถานะ is_flash_sale ให้เฉพาะชุดที่เลือก (สูงสุด 20 ตัว)
     //    - เคลียร์ is_flash_sale ทั้งหมดก่อน
@@ -1814,7 +1730,13 @@ router.get("/flash-sale",
  * @swagger
  * /api/products/public:
  *   get:
- *     summary: Get active products with filtering (public)
+ *     summary: Get active products with filtering (public) - Refactored with optimized queries
+ *     description: |
+ *       Returns active products with advanced filtering and pagination.
+ *       - Supports category filtering, tag filtering (single or multiple), and search
+ *       - Uses optimized COUNT query with subquery when JOINs are present
+ *       - Cached for 3 minutes
+ *       - Uses productQueryBuilder for consistent query building
  *     tags: [Products]
  *     parameters:
  *       - in: query
@@ -1822,25 +1744,51 @@ router.get("/flash-sale",
  *         schema:
  *           type: integer
  *           default: 1
+ *           minimum: 1
+ *         description: Page number
  *       - in: query
  *         name: limit
  *         schema:
  *           type: integer
  *           default: 50
+ *           minimum: 1
+ *           maximum: 100
+ *         description: Number of products per page
  *       - in: query
  *         name: category_id
  *         schema:
  *           type: integer
+ *         description: Filter by category ID (use "all" to show all categories)
+ *         example: 1
  *       - in: query
  *         name: tag_id
  *         schema:
  *           type: array
  *           items:
  *             type: integer
+ *         description: Filter by tag ID(s) - can specify multiple tags (e.g., ?tag_id=1&tag_id=2)
+ *         example: [1, 2]
  *       - in: query
  *         name: search
  *         schema:
  *           type: string
+ *         description: Search keyword (searches in product name and shop name)
+ *         example: "ครีมบำรุง"
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           enum: [price, sales_count, updated_at, rating_star]
+ *         description: Sort field
+ *         example: "price"
+ *       - in: query
+ *         name: sortOrder
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *           default: desc
+ *         description: Sort order
+ *         example: "desc"
  *     responses:
  *       200:
  *         description: Products retrieved successfully
@@ -1851,10 +1799,38 @@ router.get("/flash-sale",
  *               properties:
  *                 success:
  *                   type: boolean
+ *                   example: true
  *                 data:
  *                   type: array
  *                   items:
  *                     $ref: '#/components/schemas/Product'
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     page:
+ *                       type: integer
+ *                       example: 1
+ *                     limit:
+ *                       type: integer
+ *                       example: 50
+ *                     total:
+ *                       type: integer
+ *                       example: 100
+ *                     totalPages:
+ *                       type: integer
+ *                       example: 2
+ *       400:
+ *         description: Invalid parameters
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 // Public endpoint for client - Get active products with filtering
 router.get("/public", 
@@ -1882,41 +1858,24 @@ router.get("/public",
 
     Logger.debug(`[Public] Fetching products: page=${page}, limit=${limit}, category=${categoryId}, tags=${tagIds.join(',')}`);
 
-    // Build query with filters - only active products
-    let whereClause = "WHERE p.status = 'active'";
-    let queryParams = [];
-    let joinClause = "";
+    // Build query using helper function - ONLY ACTIVE PRODUCTS
+    // Convert tagIds array to single value or array for productQueryBuilder
+    const tagIdFilter = tagIds.length === 0 ? "all" : (tagIds.length === 1 ? tagIds[0] : tagIds);
 
-    if (categoryId !== "all" && categoryId !== "") {
-      whereClause += " AND p.category_id = ?";
-      queryParams.push(categoryId);
-    }
-
-    if (tagIds.length > 0 && tagIds[0] !== "all" && tagIds[0] !== "") {
-      joinClause += " JOIN product_tags pt ON p.item_id = pt.product_item_id";
-      whereClause += " AND pt.tag_id IN (" + tagIds.map(() => "?").join(",") + ")";
-      queryParams.push(...tagIds);
-    }
-
-    if (search.trim()) {
-      whereClause += " AND (p.product_name LIKE ? OR p.shop_name LIKE ?)";
-      queryParams.push(`%${search.trim()}%`, `%${search.trim()}%`);
-    }
-
-    // Get products
-    const selectQuery = `
-      SELECT DISTINCT p.id, p.item_id, p.category_id, c.name as category_name, p.product_name, p.price, p.price_min, p.price_max, 
-             p.commission_rate, p.commission_amount,
-             p.image_url, p.shop_name, p.shop_id, p.product_link, p.offer_link, p.rating_star, 
-             p.sales_count, p.discount_rate, 
-             p.status, p.is_flash_sale, p.updated_at
-      FROM shopee_products p
-      LEFT JOIN categories c ON p.category_id = c.id
-      ${joinClause}
-      ${whereClause}
-      ORDER BY p.updated_at DESC
-      LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}
-    `;
+    const { selectQuery, queryParams } = buildProductQuery({
+      filters: {
+        status: "all", // Public endpoint - status filter not applicable (always active)
+        categoryId,
+        tagId: tagIdFilter, // Can be single value or array
+        search
+      },
+      sortBy: undefined, // Use default sort (updated_at DESC)
+      sortOrder: "DESC",
+      limit,
+      offset,
+      onlyActive: true, // Public endpoint - only show active products
+      includeAllFields: false // Public endpoint - minimal fields only
+    });
 
     const productsResult = await executeQuery(selectQuery, queryParams);
 

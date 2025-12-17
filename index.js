@@ -11,6 +11,9 @@ import helmet from "helmet";
 import swaggerUi from "swagger-ui-express";
 import swaggerSpec from "./config/swagger.js";
 
+// Import middleware
+import { ipBlockingMiddleware } from "./middleware/ipBlocking.js";
+
 // Import routes
 import productRoutes from "./routes/products.js";
 import authRoutes from "./routes/auth.js";
@@ -26,6 +29,7 @@ import socialRoutes from "./routes/socials.js";
 import roleRoutes from "./routes/roles.js";
 import uploadRoutes from "./routes/upload.js";
 import aiSeoRoutes from "./routes/ai-seo.js";
+import ipBlockingRoutes from "./routes/ip-blocking.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,6 +47,23 @@ process.env.TZ = "Asia/Bangkok";
 
 const app = express();
 const port = process.env.SERVER_PORT || 3002;
+
+// HTTPS Redirect (Production only)
+if (process.env.NODE_ENV === 'production') {
+  app.use((req, res, next) => {
+    // Check if request is already HTTPS (via proxy)
+    const isHttps = req.header('x-forwarded-proto') === 'https' || 
+                     req.secure || 
+                     req.header('x-forwarded-ssl') === 'on';
+    
+    if (!isHttps && req.method === 'GET') {
+      const host = req.header('host') || req.hostname;
+      return res.redirect(301, `https://${host}${req.url}`);
+    }
+    
+    next();
+  });
+}
 
 // Import logger (must be after port definition)
 import Logger from "./utils/logger.js";
@@ -148,14 +169,22 @@ app.use(
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"], // Allow inline styles for React
-        scriptSrc: ["'self'"],
+        // Tightened CSP: Remove 'unsafe-inline' for scripts in production
+        styleSrc: process.env.NODE_ENV === "production" 
+          ? ["'self'"] // Production: No inline styles (requires refactoring)
+          : ["'self'", "'unsafe-inline'"], // Development: Allow inline styles for React
+        scriptSrc: process.env.NODE_ENV === "production"
+          ? ["'self'"] // Production: No inline scripts
+          : ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // Development: Allow for React dev mode
         imgSrc: ["'self'", "data:", "https:"], // Allow images from any HTTPS source
         connectSrc: ["'self'"],
         fontSrc: ["'self'", "data:"],
-        objectSrc: ["'none'"],
+        objectSrc: ["'none'"], // Block all object/embed/embed tags
         mediaSrc: ["'self'"],
-        frameSrc: ["'none'"]
+        frameSrc: ["'none'"], // Block all iframes
+        baseUri: ["'self'"], // Restrict base tag
+        formAction: ["'self'"], // Restrict form submissions
+        upgradeInsecureRequests: process.env.NODE_ENV === "production" ? [] : null // Upgrade HTTP to HTTPS in production
       }
     },
     hsts: {
@@ -181,6 +210,9 @@ app.use((req, res, next) => {
   });
   next();
 });
+
+// IP Blocking Middleware (apply before routes)
+app.use(ipBlockingMiddleware);
 
 // Swagger Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
@@ -311,6 +343,7 @@ app.use("/api/roles", roleRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/uploads", uploadRoutes);
 app.use("/api/ai-seo", aiSeoRoutes);
+app.use("/api/ip-blocking", ipBlockingRoutes);
 
 // 404 handler
 app.use((req, res) => {

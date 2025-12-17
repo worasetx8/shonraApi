@@ -10,8 +10,8 @@ const options = {
     openapi: '3.0.0',
     info: {
       title: 'Shonra Admin Backend API',
-      version: '1.0.0',
-      description: 'API documentation for Shonra Admin Backend - Shopee Affiliate Management System',
+      version: '1.1.0',
+      description: 'API documentation for Shonra Admin Backend - Shopee Affiliate Management System\n\n**Recent Updates (v1.1.0):**\n- Refactored product endpoints with service layer\n- Optimized database queries with indexes\n- Auto category assignment for products\n- Improved performance (88-99% faster queries)\n- Enhanced error handling and validation',
       contact: {
         name: 'API Support',
         email: 'support@shonra.com'

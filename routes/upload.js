@@ -8,6 +8,7 @@ import { requireAuth } from "./auth.js";
 import { executeQuery } from "../config/database.js";
 import Logger from "../utils/logger.js";
 import { handleErrorWithFormat } from "../utils/errorHandler.js";
+import { validateUploadedFile } from "../utils/fileValidator.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -103,6 +104,22 @@ router.post("/banner", requireAuth, uploadBanner.single("image"), async (req, re
       return res.status(400).json(formatResponse(false, null, "No image file provided"));
     }
 
+    // Validate file content using magic bytes
+    const contentValidation = await validateUploadedFile(req.file);
+    if (!contentValidation.isValid) {
+      // Delete the uploaded file if validation fails
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (unlinkError) {
+        Logger.warn(`[Upload] Failed to delete invalid file: ${req.file.path}`, unlinkError);
+      }
+      return res.status(400).json(formatResponse(
+        false,
+        { validationError: contentValidation.error },
+        `File validation failed: ${contentValidation.error}`
+      ));
+    }
+
     // Log file upload details for debugging
     Logger.info("Banner uploaded:", {
       filename: req.file.filename,
@@ -110,6 +127,7 @@ router.post("/banner", requireAuth, uploadBanner.single("image"), async (req, re
       path: req.file.path,
       destination: req.file.destination,
       size: req.file.size,
+      detectedType: contentValidation.detectedType,
       bannersDir: bannersDir,
       fileExists: fs.existsSync(req.file.path)
     });
@@ -145,6 +163,22 @@ router.post("/image", requireAuth, uploadImage.single("image"), async (req, res)
   try {
     if (!req.file) {
       return res.status(400).json(formatResponse(false, null, "No image file provided"));
+    }
+
+    // Validate file content using magic bytes
+    const contentValidation = await validateUploadedFile(req.file);
+    if (!contentValidation.isValid) {
+      // Delete the uploaded file if validation fails
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (unlinkError) {
+        Logger.warn(`[Upload] Failed to delete invalid file: ${req.file.path}`, unlinkError);
+      }
+      return res.status(400).json(formatResponse(
+        false,
+        { validationError: contentValidation.error },
+        `File validation failed: ${contentValidation.error}`
+      ));
     }
 
     // Compress image if sharp is available (optional, won't break if not installed)

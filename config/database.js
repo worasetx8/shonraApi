@@ -100,6 +100,10 @@ export async function executeQuery(query, params = []) {
       if (param === null || param === undefined) {
         return null;
       }
+      // Handle Date objects - convert to MySQL datetime format
+      if (param instanceof Date) {
+        return param.toISOString().slice(0, 19).replace('T', ' ');
+      }
       if (typeof param === "string") {
         return param;
       }
@@ -118,8 +122,13 @@ export async function executeQuery(query, params = []) {
       // Timezone is already set in pool config, no need to set per query
       // This improves performance by avoiding redundant SET statements
       
-      // Execute the actual query
-      const [results] = await connection.execute(query, sanitizedParams);
+      // Execute the actual query with timeout (30 seconds)
+      // This prevents resource exhaustion from long-running queries
+      const queryTimeout = parseInt(process.env.QUERY_TIMEOUT_MS) || 30000; // 30 seconds default
+      
+      const [results] = await connection.execute(query, sanitizedParams, {
+        timeout: queryTimeout
+      });
       return { success: true, data: results };
     } finally {
       // Always release connection back to pool

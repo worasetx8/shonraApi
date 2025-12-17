@@ -1,7 +1,15 @@
 /**
  * Product Query Builder
  * Helper utility to build product queries with filters, sorting, and pagination
- * Reduces code duplication between /saved and /saved-public endpoints
+ * Reduces code duplication between /saved, /saved-public, and /public endpoints
+ * 
+ * Features:
+ * - Supports single or multiple tag IDs
+ * - Supports category filtering
+ * - Supports search filtering
+ * - Supports sorting (date, commission, sales, price)
+ * - Supports pagination
+ * - Handles both admin and public endpoints
  */
 
 import Logger from "./logger.js";
@@ -11,7 +19,7 @@ import Logger from "./logger.js";
  * @param {Object} filters - Filter options
  * @param {string} filters.status - Product status ('all', 'active', 'inactive', 'flash-sale')
  * @param {string} filters.categoryId - Category ID ('all' or number)
- * @param {string} filters.tagId - Tag ID ('all' or number)
+ * @param {string|Array<string|number>} filters.tagId - Tag ID ('all', single number, or array of numbers)
  * @param {string} filters.search - Search term
  * @param {boolean} filters.onlyActive - If true, only show active products (for public endpoints)
  * @returns {Object} - { whereClause, joinClause, queryParams }
@@ -45,11 +53,23 @@ export function buildProductFilters(filters = {}) {
     queryParams.push(categoryId);
   }
 
-  // Tag filter
+  // Tag filter - support both single tagId and array of tagIds
   if (tagId !== "all" && tagId !== "") {
     joinClause += " JOIN product_tags pt ON p.item_id = pt.product_item_id";
-    whereClause += " AND pt.tag_id = ?";
-    queryParams.push(tagId);
+    
+    // Handle array of tag IDs (for multiple tag filtering)
+    if (Array.isArray(tagId) && tagId.length > 0) {
+      const validTagIds = tagId.filter(id => id !== "all" && id !== "");
+      if (validTagIds.length > 0) {
+        const placeholders = validTagIds.map(() => "?").join(",");
+        whereClause += ` AND pt.tag_id IN (${placeholders})`;
+        queryParams.push(...validTagIds);
+      }
+    } else {
+      // Single tag ID
+      whereClause += " AND pt.tag_id = ?";
+      queryParams.push(tagId);
+    }
   }
 
   // Search filter
@@ -158,6 +178,8 @@ export function buildProductSelectQuery(options = {}) {
  * @param {string} options.whereClause - WHERE clause
  * @param {string} options.joinClause - JOIN clause
  * @returns {string} - COUNT query
+ * 
+ * Optimized: Uses subquery when there's a JOIN to avoid COUNT(DISTINCT) performance issues
  */
 export function buildProductCountQuery(options = {}) {
   const {
@@ -165,7 +187,17 @@ export function buildProductCountQuery(options = {}) {
     joinClause = ""
   } = options;
 
-  return `SELECT COUNT(DISTINCT p.id) as total FROM shopee_products p ${joinClause} ${whereClause}`;
+  // If there's a JOIN (e.g., product_tags), use subquery for better performance
+  if (joinClause && joinClause.trim()) {
+    // Use subquery to count distinct products more efficiently
+    return `SELECT COUNT(*) as total FROM (
+      SELECT DISTINCT p.id 
+      FROM shopee_products p ${joinClause} ${whereClause}
+    ) as distinct_products`;
+  }
+
+  // Simple count when no JOIN
+  return `SELECT COUNT(*) as total FROM shopee_products p ${whereClause}`;
 }
 
 /**

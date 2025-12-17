@@ -17,34 +17,48 @@ export const validateRequest = (options = {}) => {
     const referer = req.headers.referer || req.headers.referrer;
     const userAgent = req.headers['user-agent'];
     
+    // Allow requests from Next.js API routes (server-side) - they don't send origin/referer
+    // Check User-Agent to identify Next.js server-side requests
+    const isNextJsServerRequest = userAgent && (
+      userAgent.includes('SHONRA-Frontend') || 
+      userAgent.includes('node-fetch') ||
+      userAgent.includes('undici')
+    );
+    
     // Check origin
     if (origin && allowedOrigins.length > 0) {
       if (!allowedOrigins.includes(origin)) {
-        Logger.warn(`Invalid origin: ${origin}`, {
-          ip: req.ip,
-          origin,
-          referer,
-          userAgent
-        });
-        return res.status(403).json({
-          success: false,
-          error: "Forbidden: Invalid origin"
-        });
+        // Allow if it's a Next.js server-side request (no origin/referer is normal)
+        if (!isNextJsServerRequest) {
+          Logger.warn(`Invalid origin: ${origin}`, {
+            ip: req.ip,
+            origin,
+            referer,
+            userAgent
+          });
+          return res.status(403).json({
+            success: false,
+            error: "Forbidden: Invalid origin"
+          });
+        }
       }
     }
     
     // Check referer (if required)
     if (requireReferer) {
       if (!referer && !allowNoReferer) {
-        Logger.warn(`Missing referer header`, {
-          ip: req.ip,
-          origin,
-          userAgent
-        });
-        return res.status(403).json({
-          success: false,
-          error: "Forbidden: Missing referer"
-        });
+        // Allow if it's a Next.js server-side request (no referer is normal)
+        if (!isNextJsServerRequest) {
+          Logger.warn(`Missing referer header`, {
+            ip: req.ip,
+            origin,
+            userAgent
+          });
+          return res.status(403).json({
+            success: false,
+            error: "Forbidden: Missing referer"
+          });
+        }
       }
       
       if (referer && allowedReferers.length > 0) {
@@ -52,7 +66,7 @@ export const validateRequest = (options = {}) => {
           referer.startsWith(allowed)
         );
         
-        if (!isValidReferer) {
+        if (!isValidReferer && !isNextJsServerRequest) {
           Logger.warn(`Invalid referer: ${referer}`, {
             ip: req.ip,
             origin,

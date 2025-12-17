@@ -287,6 +287,69 @@ app.get("/health", (req, res) => {
  *       500:
  *         description: Database connection failed
  */
+// API health check endpoint (alias for /health)
+/**
+ * @swagger
+ * /api/health:
+ *   get:
+ *     summary: Health check endpoint (API alias)
+ *     tags: [Health]
+ *     responses:
+ *       200:
+ *         description: Server is healthy
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: healthy
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *                 service:
+ *                   type: string
+ *                   example: Shonra Admin Backend
+ */
+app.get("/api/health", (req, res) => {
+  res.status(200).json({
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    service: "Shonra Admin Backend"
+  });
+});
+
+// Database health check endpoint
+/**
+ * @swagger
+ * /api/health/db:
+ *   get:
+ *     summary: Database health check
+ *     tags: [Health]
+ *     responses:
+ *       200:
+ *         description: Database is connected
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: connected
+ *                 database:
+ *                   type: string
+ *                 host:
+ *                   type: string
+ *                 port:
+ *                   type: integer
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *       500:
+ *         description: Database connection failed
+ */
 app.get("/api/health/db", async (req, res) => {
   try {
     const conn = await testConnection();

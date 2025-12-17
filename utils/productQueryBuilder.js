@@ -30,12 +30,19 @@ export function buildProductFilters(filters = {}) {
     categoryId = "all",
     tagId = "all",
     search = "",
+    itemId = null,
     onlyActive = false
   } = filters;
 
   let whereClause = onlyActive ? "WHERE p.status = 'active'" : "WHERE 1=1";
   let queryParams = [];
   let joinClause = "";
+
+  // ItemId filter (for single product lookup)
+  if (itemId) {
+    whereClause += " AND p.item_id = ?";
+    queryParams.push(itemId);
+  }
 
   // Status filter (only for non-public endpoints)
   if (!onlyActive && status !== "all" && status !== "") {

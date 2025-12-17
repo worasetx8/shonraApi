@@ -2007,4 +2007,65 @@ router.get("/saved-public",
   }
 });
 
+/**
+ * @swagger
+ * /api/products/item/{itemId}:
+ *   get:
+ *     summary: Get a single product by itemId (public)
+ *     tags: [Products]
+ *     parameters:
+ *       - in: path
+ *         name: itemId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Product item ID
+ *     responses:
+ *       200:
+ *         description: Product retrieved successfully
+ *       404:
+ *         description: Product not found
+ */
+// Public endpoint - Get single product by itemId
+router.get("/item/:itemId", async (req, res) => {
+  try {
+    const { itemId } = req.params;
+
+    if (!itemId) {
+      return res.status(400).json(formatResponse(false, null, "Item ID is required"));
+    }
+
+    // Build query for single product (active only for public endpoint)
+    const { selectQuery, queryParams } = buildProductQuery({
+      filters: {
+        status: "all",
+        categoryId: "all",
+        tagId: "all",
+        search: "",
+        itemId: itemId // Filter by specific itemId
+      },
+      sortBy: undefined,
+      sortOrder: "DESC",
+      limit: 1,
+      offset: 0,
+      onlyActive: true, // Public endpoint - only show active products
+      includeAllFields: true // Include all fields for detail page
+    });
+
+    const result = await executeQuery(selectQuery, queryParams);
+
+    if (!result.success) {
+      throw new Error(`Query failed: ${result.error}`);
+    }
+
+    if (result.data.length === 0) {
+      return res.status(404).json(formatResponse(false, null, "Product not found"));
+    }
+
+    res.json(formatResponse(true, result.data[0], "Product retrieved successfully"));
+  } catch (error) {
+    return handleErrorWithFormat(error, res, "Failed to retrieve product", 500, formatResponse);
+  }
+});
+
 export default router;

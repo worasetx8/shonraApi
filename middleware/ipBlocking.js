@@ -309,9 +309,16 @@ export function cleanupExpiredBlocks() {
 /**
  * IP Blocking Middleware
  * Checks if request IP is blocked and returns 403 if blocked
+ * Bypasses blocking for static file serving (images, uploads)
  */
 export function ipBlockingMiddleware(req, res, next) {
   const clientIP = getClientIP(req);
+
+  // Bypass IP blocking for static file serving (images, uploads)
+  // These are public resources that should always be accessible
+  if (req.path.startsWith('/api/uploads/')) {
+    return next();
+  }
 
   // Check if whitelisted
   if (isWhitelisted(clientIP)) {

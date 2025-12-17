@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: shonra-backend-api
-    image: shonra-backend-api:1.0.4
+    image: shonra-backend-api:1.0.5
     env_file:
       - stack.env
     restart: always

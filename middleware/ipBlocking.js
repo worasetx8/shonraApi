@@ -314,9 +314,8 @@ export function cleanupExpiredBlocks() {
 export function ipBlockingMiddleware(req, res, next) {
   const clientIP = getClientIP(req);
 
-  // Bypass IP blocking for static file serving (images, uploads)
-  // These are public resources that should always be accessible
-  if (req.path.startsWith('/api/uploads/')) {
+  // Bypass IP blocking for public static resources
+  if (req.path.startsWith('/api/uploads/') || req.path === '/favicon.ico') {
     return next();
   }
 

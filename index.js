@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import express from "express";
 import cors from "cors";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import { testConnection, initializeDatabase } from "./config/database.js";
 import { cleanupExpiredSessions, getSessionTimeoutHours } from "./utils/auth.js";
@@ -211,6 +212,38 @@ app.use((req, res, next) => {
   next();
 });
 
+// Serve static files from public directory
+const publicDir = path.join(__dirname, 'public');
+
+// Favicon handler - serves favicon.ico before IP blocking middleware
+app.get('/favicon.ico', (req, res) => {
+  const faviconPath = path.join(publicDir, 'favicon.ico');
+  
+  if (!fs.existsSync(faviconPath)) {
+    return res.status(404).type('text/plain').send('Favicon not found');
+  }
+  
+  res.setHeader('Content-Type', 'image/x-icon');
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  res.sendFile(faviconPath, (err) => {
+    if (err && !res.headersSent) {
+      Logger.error(`[Favicon] Error: ${err.message}`);
+      res.status(404).type('text/plain').send('Favicon not found');
+    }
+  });
+});
+
+// Serve static files from public directory
+app.use(express.static(publicDir, {
+  index: false,
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.ico')) {
+      res.setHeader('Content-Type', 'image/x-icon');
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  }
+}));
+
 // IP Blocking Middleware (apply before routes)
 app.use(ipBlockingMiddleware);
 
@@ -410,11 +443,15 @@ app.use("/api/ip-blocking", ipBlockingRoutes);
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: "API endpoint not found",
-    path: req.path
-  });
+  if (req.path.startsWith('/api')) {
+    res.status(404).json({
+      success: false,
+      message: "API endpoint not found",
+      path: req.path
+    });
+  } else {
+    res.status(404).type('text/plain').send('Not found');
+  }
 });
 
 // Error handler

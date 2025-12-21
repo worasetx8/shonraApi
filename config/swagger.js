@@ -10,8 +10,8 @@ const options = {
     openapi: '3.0.0',
     info: {
       title: 'Shonra Admin Backend API',
-      version: '1.1.0',
-      description: 'API documentation for Shonra Admin Backend - Shopee Affiliate Management System\n\n**Recent Updates (v1.1.0):**\n- Refactored product endpoints with service layer\n- Optimized database queries with indexes\n- Auto category assignment for products\n- Improved performance (88-99% faster queries)\n- Enhanced error handling and validation',
+      version: '1.2.0',
+      description: 'API documentation for Shonra Admin Backend - Shopee Affiliate Management System\n\n**Recent Updates (v1.2.0):**\n- Added health check endpoints (/health, /api/health, /api/health/db)\n- Enhanced frontend product saving endpoint with increased rate limits (60 req/min)\n- Improved static file serving (favicon, public assets)\n- Enhanced IP blocking middleware with bypass list\n- Optimized robots.txt configuration for SEO\n\n**Previous Updates (v1.1.0):**\n- Refactored product endpoints with service layer\n- Optimized database queries with indexes\n- Auto category assignment for products\n- Improved performance (88-99% faster queries)\n- Enhanced error handling and validation',
       contact: {
         name: 'API Support',
         email: 'support@shonra.com'
@@ -169,6 +169,7 @@ const options = {
       }
     },
     tags: [
+      { name: 'Health', description: 'Health check and monitoring endpoints' },
       { name: 'Authentication', description: 'Authentication endpoints' },
       { name: 'Products', description: 'Product management endpoints' },
       { name: 'Categories', description: 'Category management endpoints' },
@@ -179,7 +180,8 @@ const options = {
       { name: 'Admin', description: 'Admin user management endpoints' },
       { name: 'Social Media', description: 'Social media links management' },
       { name: 'Uploads', description: 'File upload endpoints' },
-      { name: 'AI SEO', description: 'AI-powered SEO endpoints' }
+      { name: 'AI SEO', description: 'AI-powered SEO endpoints' },
+      { name: 'IP Blocking', description: 'IP blocking and whitelist management endpoints' }
     ]
   },
   apis: [

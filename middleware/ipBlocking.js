@@ -9,6 +9,14 @@ import Logger from "../utils/logger.js";
 // In-memory IP blocking (in production, use Redis for distributed blocking)
 const blockedIPs = new Map(); // IP -> { blockedUntil: timestamp, reason: string, violations: number }
 const whitelistedIPs = new Set(); // IPs that bypass all checks
+
+// In development, whitelist localhost by default to prevent self-blocking
+if (process.env.NODE_ENV !== 'production') {
+  whitelistedIPs.add('127.0.0.1');
+  whitelistedIPs.add('::1');
+  Logger.info('[IPBlocking] Development mode: Localhost whitelisted automatically');
+}
+
 const lastLogTime = new Map(); // IP -> last log timestamp (for rate limiting logs)
 
 // Configuration
@@ -406,16 +414,10 @@ export function ipBlockingMiddleware(req, res, next) {
 setInterval(cleanupExpiredBlocks, 5 * 60 * 1000);
 
 // Initialize whitelist from environment variable (comma-separated)
-// Note: In development, localhost (127.0.0.1) should NOT be whitelisted to allow rate limiting testing
 if (process.env.WHITELISTED_IPS) {
   const ips = process.env.WHITELISTED_IPS.split(',').map(ip => ip.trim()).filter(ip => ip);
-  // Filter out localhost in development to allow rate limiting testing
-  const isDevelopment = process.env.NODE_ENV !== 'production';
-  const filteredIPs = isDevelopment 
-    ? ips.filter(ip => ip !== '127.0.0.1' && ip !== '::1' && ip !== 'localhost')
-    : ips;
   
-  filteredIPs.forEach(ip => whitelistIP(ip));
-  Logger.info(`[IPBlocking] Initialized ${filteredIPs.length} whitelisted IP(s) from environment${isDevelopment && ips.length !== filteredIPs.length ? ' (localhost excluded for testing)' : ''}`);
+  ips.forEach(ip => whitelistIP(ip));
+  Logger.info(`[IPBlocking] Initialized ${ips.length} whitelisted IP(s) from environment`);
 }
 

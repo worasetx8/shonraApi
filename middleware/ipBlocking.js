@@ -313,10 +313,56 @@ export function cleanupExpiredBlocks() {
  */
 export function ipBlockingMiddleware(req, res, next) {
   const clientIP = getClientIP(req);
+  const userAgent = req.headers['user-agent'] || '';
 
   // Bypass IP blocking for public static resources
   if (req.path.startsWith('/api/uploads/') || req.path === '/favicon.ico') {
     return next();
+  }
+
+  // Bypass IP blocking for public API endpoints when called from Next.js server-side
+  // Security: Check User-Agent and optional secret header for additional security
+  const isNextJsServerRequest = userAgent.includes('SHONRA-Frontend') || 
+                                 userAgent.includes('node-fetch') || 
+                                 userAgent.includes('undici');
+  
+  // Optional secret header for additional security (set in environment variable)
+  // In production, this adds an extra layer of security
+  const expectedSecret = process.env.NEXTJS_API_SECRET;
+  const providedSecret = req.headers['x-nextjs-api-secret'];
+  const hasValidSecret = !expectedSecret || providedSecret === expectedSecret;
+  
+  // Public API endpoints that should be accessible from Next.js server-side
+  const publicApiPaths = [
+    '/api/products/public',
+    '/api/products/flash-sale',
+    '/api/categories/public',
+    '/api/tags/public',
+    '/api/banners/public',
+    '/api/settings',
+    '/api/health'
+  ];
+  
+  const isPublicApiPath = publicApiPaths.some(path => req.path.startsWith(path));
+  
+  // Bypass logic:
+  // - In development: Allow if User-Agent matches (for easier testing)
+  // - In production: Require both User-Agent AND secret header (if configured)
+  const isDevelopment = process.env.NODE_ENV !== 'production';
+  const shouldBypass = isPublicApiPath && isNextJsServerRequest && 
+                       (isDevelopment || hasValidSecret);
+  
+  if (shouldBypass) {
+    return next();
+  }
+  
+  // Log suspicious attempts in production (if secret is configured but missing)
+  if (!isDevelopment && expectedSecret && isPublicApiPath && isNextJsServerRequest && !hasValidSecret) {
+    Logger.warn(`[IPBlocking] Next.js server request missing secret header`, {
+      ip: clientIP,
+      path: req.path,
+      userAgent
+    });
   }
 
   // Check if whitelisted
